@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+rusty-tags.vi
+
+# vim
+*.swp
+*.swo
