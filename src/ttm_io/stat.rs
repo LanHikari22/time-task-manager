@@ -1,43 +1,11 @@
-//! parses TTM elements and defines io for said elements
+use std::borrow::Cow;
 use regex::Regex;
-use crate::regex_utils;
 use crate::common;
-
-/// function to experiment with grammar regex
-pub fn experiment_parse_var(s: &str) {
-    const INT_TYPE_REGEX: &str = r"(u8|u16|u32|i8|i16|i32)";
-    const KEYWORD_REGEX: &str = r"([a-zA-Z][a-zA-Z0-9_]*)";
-    const LITERAL_INT_REGEX: &str = r"(0x[a-fA-F1-9][a-fA-F0-9]*|[1-9][0-9]*)";
-    lazy_static!{
-        static ref VARIABLE_DECLERATION_REGEX: String = format!(r"let (?P<VarName>{KEYWORD}): (?P<TypeName>{INT_TYPE}) = (?P<Value>{KEYWORD}|{NUMBER});", 
-                                                                KEYWORD=KEYWORD_REGEX, INT_TYPE=INT_TYPE_REGEX, NUMBER=LITERAL_INT_REGEX);
-        static ref RE_VARIABLE_DECLERATION: Regex = Regex::new(&regex_utils::filter_inner_capture_group_names(&VARIABLE_DECLERATION_REGEX)).unwrap();
-    }
-    println!("{}", s);
-    println!("{:?}", RE_VARIABLE_DECLERATION.captures(s));
-    println!("{:?}", RE_VARIABLE_DECLERATION.captures(s).and_then(|cap| cap.name("VarName").map(|v| v.as_str())));
-    println!("{:?}", RE_VARIABLE_DECLERATION.captures(s).and_then(|cap| cap.name("TypeName").map(|v| v.as_str())));
-    println!("{:?}", RE_VARIABLE_DECLERATION.captures(s).and_then(|cap| cap.name("Value").map(|v| v.as_str())));
-}
+use super::common_regex;
+use super::regex_utils;
 
 
-/// this defines common regex tokens and compiled regex for elements that can be found across
-/// parsers
-pub mod common_regex {
-    use super::*;
-    pub const INTEGER: &str = r"((?x) 0x[a-fA-F0-9]+ | 0o[0-7]+ | 0b[0-1]+ | \d+)";
-    lazy_static! {
-        // compiled regex
-        pub static ref INTEGER_RE: Regex = Regex::new(&INTEGER).unwrap();
-    }
-}
-
-
-// ------------------------------------------------------------------------------------------------------------------
-// Stat  ------------------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------------------------
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Stat {
     Count {act: Option<i32>, exp: Option<i32>}, // actual count out of expected count or objective. ex. 2/5 reads "Done 2 out of 5."
     Bool {act: bool, exp:  bool}, // -: not done (but implicitly required!), !: done, -/!: explicit default of "-", !/-: done, wasn't required, /-: not required.
@@ -49,6 +17,7 @@ pub enum Stat {
 }
 
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum StatParseError {
     InvalidMatch, // all-catch
@@ -87,7 +56,7 @@ pub mod stat_parser_regex {
 }
 
 impl std::str::FromStr for Stat {
-    type Err = ();
+    type Err = Cow<'static, str>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         fn parse_custom_bool(s: &str) -> Result<bool, ()> {
             match s {
@@ -129,32 +98,10 @@ impl std::str::FromStr for Stat {
             Ok(Stat::Unknown)
         }
         else {
-            Err(())
+            Err(format!("No variant of Stat is satisfied by '{}'", s).into())
         }
     }
 }
-
-
-
-// ------------------------------------------------------------------------------------------------------------------
-// BlockTracker  ----------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------------------------
-
-pub enum WeekDay {
-    M, T, W, R, F, S, U,
-}
-
-pub struct BlockTrackerEntry {
-    day_entries: [Stat; 7],
-}
-
-impl std::ops::Index<WeekDay> for BlockTrackerEntry {
-    type Output = Stat;
-    fn index(&self, idx: WeekDay) -> &Stat {
-        &self.day_entries[idx as usize]
-    }
-}
-
 
 
 #[cfg(test)]
@@ -216,8 +163,4 @@ mod tests {
 
     
     
-    // ------------------------------------------------------------------------------------------------------------------
-    // BlockTracker Tests -----------------------------------------------------------------------------------------------
-    // ------------------------------------------------------------------------------------------------------------------
-
 }

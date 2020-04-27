@@ -29,7 +29,7 @@ pub fn filter_inner_capture_group_names(regex: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[allow(unused_imports)] use super::*;
 
     #[test]
     fn test_filter_inner_capture_group_names() {
