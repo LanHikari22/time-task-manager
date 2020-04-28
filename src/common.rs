@@ -37,6 +37,7 @@ pub fn parse_integer_auto(s: &str) -> Result<i32, ()> {
     }
 }
 
+
 /* // just really not giving up on hacking macros to evaluate counters i guess!
 macro_rules! num_encode32 {
     {a} => {0};
