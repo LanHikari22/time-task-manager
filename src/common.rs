@@ -11,10 +11,25 @@ pub fn char_in(c: char, v: &[char]) -> bool {
     v.iter().any(|&e| c == e)
 }
 
+/// checks for occurrance of every character in $chars in $s
+/// 
+/// # Examples
+/// ```
+/// assert_eq!(str_contains_any_char("0xAC", "ABCDEFabcdef"), true);
+/// assert_eq!(str_contains_any_char("0xAC", "123"), false);
+/// ```
+pub fn str_contains_any_char(s: &str, chars: &str) -> bool {
+    for c in chars.chars() {
+        if s.contains(c) {return true;}
+    }
+    false
+}
+
 /// counts the occurance of the character $occurance in string $s
 pub fn str_count_char(s: &str, occurance: char) -> i32 {
     s.chars().map(|c| if c == occurance {1} else {0}).sum::<i32>()
 }
+
 
 /// this can be used to handle multiple result sources without subtyping them together
 pub fn result_err_to_unit<T, E>(res: Result<T, E>) -> Result<T, ()> {
@@ -33,6 +48,7 @@ pub fn parse_integer_auto(s: &str) -> Result<i32, ()> {
         _ if s.starts_with("0x") => result_err_to_unit(i32::from_str_radix(&s[2..], 16).and_then(|i| Ok(neg * i))),
         _ if s.starts_with("0o") => result_err_to_unit(i32::from_str_radix(&s[2..], 8).and_then(|i| Ok(neg * i))),
         _ if s.starts_with("0b") => result_err_to_unit(i32::from_str_radix(&s[2..], 2).and_then(|i| Ok(neg * i))),
+        _ if str_contains_any_char(&s, "ABCDEFabcdef") => result_err_to_unit(i32::from_str_radix(&s, 16).and_then(|i| Ok(neg * i))),
         _ => result_err_to_unit(s.parse::<i32>().and_then(|i| Ok(neg * i))),
     }
 }

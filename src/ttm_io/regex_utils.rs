@@ -27,6 +27,51 @@ pub fn filter_inner_capture_group_names(regex: &str) -> String {
     out_regex.join("(")
 }
 
+
+/// Handles the logic of parsing a field that has been regex captured
+/// fields may be specified in regex with the (?P<Field>) syntax
+/// Parses an i32 automatically out of the captured field
+/// 
+/// # panics
+/// Assumes that the field exists and can me captured by cap
+/// Assumes that the capture is well-defined and parses successfully
+pub fn capture_parse_i32(cap: &regex::Captures<'_>, field: &str) -> i32 {
+    let out = cap.name(field).map(|m| m.as_str()).unwrap();
+    println!("{}", out);
+    let out = common::parse_integer_auto(out).unwrap();
+
+    out
+}
+
+
+/// Handles the logic of parsing a field that has been regex captured
+/// fields may be specified in regex with the (?P<Field>) syntax
+/// Parses a u32 automatically out of a field
+/// 
+/// # panics
+/// Assumes that the field exists and can me captured by cap
+/// Assumes that the capture is well-defined and parses successfully
+pub fn capture_parse_u32(cap: &regex::Captures<'_>, field: &str) -> u32 {
+    capture_parse_i32(cap, field) as u32
+}
+
+
+/// Handles the logic of parsing a field that has been regex captured
+/// fields may be specified in regex with the (?P<Field>) syntax
+/// Once captured, this uses T's parse logic to parse T.
+/// 
+/// # panics
+/// Assumes that the field exists and can me captured by cap
+/// Assumes that the capture is well-defined and parses successfully
+pub fn capture_parse<T>(cap: &regex::Captures<'_>, field: &str) -> T 
+    where T: std::str::FromStr,
+        <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    cap.name(field).map(|m| m.as_str()).unwrap()
+        .parse::<T>().unwrap()
+}
+
+
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)] use super::*;

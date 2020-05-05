@@ -9,6 +9,7 @@ use crate::common;
 use super::common_regex;
 use super::regex_utils;
 use super::stat;
+use super::date;
 
 use stat::Stat;
 
@@ -40,13 +41,34 @@ pub mod task_parser_regex {
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub enum TaskFlags {
-    Blocked,
-    Current,
-    Late,
-    Done,
-    Priority(i32),
+
+bitflags! {
+    struct TaskFlags: u32 {
+        const BLOCKED = 0b00000001;
+        const CURRENT = 0b00000010;
+        const LATE    = 0b00000011;
+        const DONE    = 0b00000100;
+    }
+}
+
+impl std::str::FromStr for TaskFlags {
+    type Err = Cow<'static, str>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let mut out = Self::empty();
+        for c in s.chars() {
+            match c {
+            'B' => out.insert(TaskFlags::BLOCKED),
+            '>' => out.insert(TaskFlags::CURRENT),
+            'L' => out.insert(TaskFlags::LATE),
+            '~' => out.insert(TaskFlags::DONE),
+            _ => return Err(format!("could not parse TaskFlag '{}' found in '{}'", c, s).into()),
+            }
+        }
+
+        Ok(out)
+    }
 }
 
 #[derive(Debug)]
@@ -58,16 +80,17 @@ pub enum TaskParseError {
 pub struct Task {
     name: String,
     day_stats: (Option<Stat>, Option<Stat>),
-    flags: Option<TaskFlags>,
-    other_stats: Option<HashMap<String, (Stat, Stat)>>,
-    done_date: Option<String>,    
-    due_date: Option<String>,
-    hard_date: Option<String>,
+    flags: TaskFlags,
+    other_stats: HashMap<String, (Option<Stat>, Option<Stat>)>,
+    done_date: Option<date::Date>,    
+    due_date: Option<date::Date>,
+    hard_date: Option<date::Date>,
 }
 
 impl Task {
     fn from_name_and_day_stats(name: &str, day_stats: (Option<Stat>, Option<Stat>)) -> Result<Task, Cow<'static, str>> {
-        Ok(Task {name: name.to_owned(), day_stats, flags: None, other_stats: None, done_date: None, due_date: None, hard_date: None})
+        Ok(Task {name: name.to_owned(), day_stats, flags: TaskFlags::empty(), 
+            other_stats: HashMap::new(), done_date: None, due_date: None, hard_date: None})
     }
 
     fn from_name(name: &str) -> Result<Task, Cow<'static, str>> {
@@ -79,29 +102,31 @@ impl std::str::FromStr for Task {
     type Err = Cow<'static, str>;
 
     /// parses a Task entry of the :write!form
-    // [EntryFlags]\([DayStat][, AccStat]; DoneDateCode; [due|hard: DateCode;] [g[Name]: Stat[,AccStat];] [rept: (D|W)[<N>];]\) TaskName
+    // [TaskFlags]\([DayStat][, AccStat]; DoneDateCode; [due|hard: DateCode;] [g[Name]: Stat[,AccStat];] [rept: (D|W)[<N>];]\) TaskName
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // isolate the task name from its decriptor fields
         if !(s.contains('(') && s.contains(')')) {return Err("no task descriptors found".into());}
-        let descriptor_idx = s.find(')').unwrap();
-        let name = &s[descriptor_idx+1..];
-        let mut ordered_arguments = true;
+        let open_paren_idx = s.find('(').unwrap();
+        let closed_paren_idx = s.find(')').unwrap();
 
-        let fields = parse_tuple_arguments(&s[..=descriptor_idx])?;
-        let mut res = Task::from_name(name)?;
+        let mut res = Task::from_name(&s[closed_paren_idx+1..].trim())?;
+        res.flags = (&s[..open_paren_idx]).parse::<TaskFlags>()?;
+
+        let mut ordered_arguments = true;
+        let fields = parse_tuple_arguments(&s[open_paren_idx..=closed_paren_idx])?;
         for (i, field) in fields.iter().enumerate() {
             let idx = field.find(':');
             if  idx == None {
+                if field == "" {continue;}
                 if !ordered_arguments {return Err(format!("encountered ordered argument {} after kwarg", field).into());}
 
                 println!("arg {}: {}", i, field);
 
                 match i {
                 0 => { // [DayStat][, AccStat]
-                    let day_stats = parse_stat_pair(field)?;
-                    res.day_stats = day_stats;
+                    res.day_stats = parse_stat_pair(field)?;
                 },
                 1 => { // DoneDateCode
+                    res.done_date = Some(field.parse::<date::Date>()?)
                 },
                 _ => {return Err(format!("invalid argument {} at pos {}: exceeded maximum ordered args", field, i).into())}
                 }
@@ -112,18 +137,19 @@ impl std::str::FromStr for Task {
                 println!("key {}, val {}", key, val);
                 
                 if key == "due" {
-
+                    res.due_date = Some(val.parse::<date::Date>()?)
                 } else if key == "hard" {
-
+                    res.hard_date = Some(val.parse::<date::Date>()?)
                 } else if key == "rept" {
                     unimplemented!("rept kwarg not supported yet");
                 } else if key.starts_with("g") {
-
+                    // if res.other_stats.is_none() {res.other_stats = Some(HashMap::new());}
+                    res.other_stats.insert(key[1..].to_owned(), parse_stat_pair(&val.trim())?);
                 } else {return Err(format!("unsupported keyword argument {} in {}", key, field).into())}
             }
         }
 
-        unimplemented!()
+        Ok(res)
     }
 
 }
@@ -196,19 +222,56 @@ mod tests {
             Task::from_name_and_day_stats("Basic Task", 
                 (Some(Stat::Count {act: Some(0), exp: None}), 
                  Some(Stat::Count {act: Some(0), exp: None}))).unwrap());
-        assert_parses(">(2/15) Current Task", 
+        assert_parses(">B(2/15) Current Blocked Task", 
             Task {
                 day_stats:
                     (Some(Stat::Count {act: Some(2), exp: Some(15)}), 
                      None),
-                name: "Current Task".to_owned(),
-                flags: None,
-                other_stats: None,
+                name: "Current Blocked Task".to_owned(),
+                flags: TaskFlags::CURRENT | TaskFlags::BLOCKED,
+                other_stats: HashMap::new(),
                 done_date: None, due_date: None, hard_date: None
             }
-    
         );
-
+        assert_parses("~~LL(-; Y20S-W8W) Completed Late Task", 
+            Task {
+                day_stats:
+                    (Some(Stat::Bool {act: false, exp: true}),
+                     None),
+                name: "Completed Late Task".to_owned(),
+                flags: TaskFlags::DONE | TaskFlags::LATE,
+                other_stats: HashMap::new(),
+                done_date: Some(date::Date::DateCode {year: 20, season: date::Season::Spring, week: 8, day: date::Weekday::Wed}), 
+                due_date: None, hard_date: None
+            }
+        );
+        assert_parses("(due: Y20S-WAU; hard: WC) Important Deadline", 
+            Task {
+                day_stats: (None, None),
+                name: "Important Deadline".to_owned(),
+                flags: TaskFlags::empty(),
+                other_stats: HashMap::new(),
+                done_date: None,
+                due_date: Some(date::Date::DateCode {year: 20, season: date::Season::Spring, week: 0xA, day: date::Weekday::Sun}), 
+                hard_date: Some(date::Date::ShortWeekDateCode {week: 0xC}), 
+            }
+        );
+        assert_parses(">(2/15; gPushups: 0/10; gPlancks: -;) My Exercise Task!", 
+            Task {
+                day_stats:
+                    (Some(Stat::Count {act: Some(2), exp: Some(15)}), 
+                     None),
+                name: "My Exercise Task!".to_owned(),
+                flags: TaskFlags::CURRENT,
+                other_stats: {
+                    let mut map = HashMap::new();
+                    map.insert("Pushups".into(), (Some(Stat::Count {act: Some(0), exp: Some(10)}), None));
+                    map.insert("Plancks".into(), (Some(Stat::Bool {act: false, exp: true}), None));
+                    map
+                },
+                done_date: None, due_date: None, hard_date: None
+            }
+        );
     }
     
     #[test]
