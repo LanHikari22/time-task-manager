@@ -19,7 +19,7 @@ pub fn filter_inner_capture_group_names(regex: &str) -> String {
         }
 
         // acount for descoping
-        scope -= common::str_count_char(scope_token, ')');
+        scope -= common::StrUtils(scope_token).count_char(')');
         // next token will be in a nested layer
         scope += 1;
     }

@@ -1,35 +1,116 @@
 #![allow(dead_code)]
 #![allow(unused_macros)]
 
-/// checks if $s is in any occurances in $v
-pub fn str_in(s: &str, v: &[&str]) -> bool {
-    v.iter().any(|&e| s == e)
-}
+// -----------------------------------------------------------------
+// -----------------------------------------------------------------
+/// implements search and scanning functions for &str
+pub struct StrUtils<'a>(pub &'a str);
 
-/// checks if the character $c matches any characters in $v
-pub fn char_in(c: char, v: &[char]) -> bool {
-    v.iter().any(|&e| c == e)
-}
-
-/// checks for occurrance of every character in $chars in $s
-/// 
-/// # Examples
-/// ```
-/// assert_eq!(str_contains_any_char("0xAC", "ABCDEFabcdef"), true);
-/// assert_eq!(str_contains_any_char("0xAC", "123"), false);
-/// ```
-pub fn str_contains_any_char(s: &str, chars: &str) -> bool {
-    for c in chars.chars() {
-        if s.contains(c) {return true;}
+impl StrUtils<'_> {
+    /// checks for occurrance of every character in $chars in the string
+    /// 
+    /// # Examples
+    /// ```
+    /// assert_eq!(StrUtils("0xDeadFeed").contains_any("ABCDEFabcdef"), true);
+    /// assert_eq!(StrUtils("456").contains_any("123"), false);
+    /// ```
+    pub fn contains_any(&self, chars: &str) -> bool {
+        for c in chars.chars() {
+            if self.0.contains(c) {return true;}
+        }
+        false
     }
-    false
+
+    /// checks that every character specified in $chars is contained in the string
+    /// 
+    /// # Examples
+    /// ```
+    /// assert_eq!(StrUtils("[ContainsBrackets]").contains_all("[]"), true);
+    /// assert_eq!(StrUtils("[01]").contains_all("01"), true);
+    /// assert_eq!(StrUtils("[1]").contains_all("01"), false);
+    /// ```
+    pub fn contains_all(&self, chars: &str) -> bool {
+        for c in chars.chars() {
+            if !self.0.contains(c) {return false;}
+        }
+        true
+    }
+
+    /// checks if the string is in any occurances in $v
+    /// 
+    /// # Examples
+    /// ```
+    /// assert_eq!(StrUtils("OK").in_any(&vec!["OK", "PASS"]), true);
+    /// assert_eq!(StrUtils("NO").in_any(&vec!["OK", "PASS"]), false);
+    /// ```
+    pub fn in_any(&self, v: &[&str]) -> bool {
+        v.iter().any(|&el| self.0 == el)
+    }
+
+    /// counts the occurance of the character $occurance in the string
+    pub fn count_char(&self, occurance: char) -> i32 {
+        self.0.chars().map(|c| if c == occurance {1} else {0}).sum::<i32>()
+    }
+
+    /// gets the tab characters of the string
+    pub fn tabs(&self) -> &str {
+        let mut idx = 0;
+        for c in self.0.chars() {
+            if !CharUtils(c).is_in(&vec![' ', '\t']) {break;}
+            idx += 1;
+        }
+        &self.0[..idx]
+    }
+
 }
 
-/// counts the occurance of the character $occurance in string $s
-pub fn str_count_char(s: &str, occurance: char) -> i32 {
-    s.chars().map(|c| if c == occurance {1} else {0}).sum::<i32>()
+impl<'a> From<&'a str> for StrUtils<'a> {
+    fn from(s: &'a str) -> Self {
+        StrUtils(s)
+    }
 }
 
+
+#[cfg(test)]
+mod string_utils_tests {
+    use super::*;
+    #[test]
+    fn test_contains_any() {
+        assert_eq!(StrUtils("0xDeadFeed").contains_any("ABCDEFabcdef"), true);
+        assert_eq!(StrUtils("456").contains_any("123"), false);
+    }
+
+    #[test]
+    fn test_contains_all() {
+        assert_eq!(StrUtils("[ContainsBrackets]").contains_all("[]"), true);
+        assert_eq!(StrUtils("[01]").contains_all("01"), true);
+        assert_eq!(StrUtils("[1]").contains_all("01"), false);
+    }
+
+    fn test_in_any() {
+        assert_eq!(StrUtils("OK").in_any(&vec!["OK", "PASS"]), true);
+        assert_eq!(StrUtils("NO").in_any(&vec!["OK", "PASS"]), false);
+    }
+
+
+}
+
+
+/// -----------------------------------------------------------------
+/// -----------------------------------------------------------------
+
+/// utils for the char type
+pub struct CharUtils(char);
+
+impl CharUtils {
+    /// checks if the character matches any characters in $v
+    pub fn is_in(&self, v: &[char]) -> bool {
+        v.iter().any(|&el| self.0 == el)
+    }
+}
+
+/// -----------------------------------------------------------------
+/// -----------------------------------------------------------------
 
 /// this can be used to handle multiple result sources without subtyping them together
 pub fn result_err_to_unit<T, E>(res: Result<T, E>) -> Result<T, ()> {
@@ -48,7 +129,7 @@ pub fn parse_integer_auto(s: &str) -> Result<i32, ()> {
         _ if s.starts_with("0x") => result_err_to_unit(i32::from_str_radix(&s[2..], 16).and_then(|i| Ok(neg * i))),
         _ if s.starts_with("0o") => result_err_to_unit(i32::from_str_radix(&s[2..], 8).and_then(|i| Ok(neg * i))),
         _ if s.starts_with("0b") => result_err_to_unit(i32::from_str_radix(&s[2..], 2).and_then(|i| Ok(neg * i))),
-        _ if str_contains_any_char(&s, "ABCDEFabcdef") => result_err_to_unit(i32::from_str_radix(&s, 16).and_then(|i| Ok(neg * i))),
+        _ if StrUtils(&s).contains_any("ABCDEFabcdef") => result_err_to_unit(i32::from_str_radix(&s, 16).and_then(|i| Ok(neg * i))),
         _ => result_err_to_unit(s.parse::<i32>().and_then(|i| Ok(neg * i))),
     }
 }
