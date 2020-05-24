@@ -1,7 +1,7 @@
 //! regex_utils
 //! utility functions for regex handling with things such as grammars
 
-use crate::common;
+use crate::utils::common;
 
 /// this removes out inner named groups in regex strings so that when the regex is used for 
 /// tokenization, only the top-level tokens are considered.

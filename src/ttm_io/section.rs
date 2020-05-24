@@ -1,4 +1,4 @@
-//! @author LanHikari22
+//! @author LanHikari22 <lanhikarixx@gmail.com>
 //! 
 //! responsible for the parsing of Sections from a file stream or string
 //! A section always start with a section specifier [Section Pattern] and ends with either the
@@ -9,7 +9,7 @@
 #![allow(dead_code)]
 
 use std::borrow::Cow;
-use crate::common::StrUtils;
+use crate::utils::common::StrUtils;
 
 #[derive(Debug, PartialEq)]
 struct Section {

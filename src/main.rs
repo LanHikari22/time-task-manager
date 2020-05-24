@@ -2,7 +2,7 @@
 #[macro_use] extern crate bitflags;
 extern crate regex;
 
-pub mod common;
+pub mod utils;
 pub mod ttm_io;
 
 fn main() {
