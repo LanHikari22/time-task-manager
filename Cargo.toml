@@ -10,4 +10,5 @@ edition = "2018"
 lazy_static = "1"
 regex = "1"
 bitflags = "1"
+itertools = "0"
 

@@ -4,88 +4,197 @@
 //! string stream and maintain a running substr window such that each element can be consumed consecutively
 //! to define more complex combinator parsing logic. It also defines scan<Type> methods for common elements
 
-struct StrScanner<'a> {
+#![allow(dead_code)]
+use super::common::CharUtils;
+
+
+pub struct StrScanner<'a> {
     // defines the string stream to consume from 
-    stream: &'a str,
+    pub stream: &'a str,
     // cursor into the stream used to obtain the current unconsumed slice
-    cur: usize,
+    pub cur: usize,
 }
 
 impl<'a> StrScanner<'a> {
-    pub fn scan<T: FromNext>(&mut self) -> Result<T, T::Err> {
-        let (elem, cur) = T::next(self.stream)?;
+    pub fn peek<T: FromNext>(&mut self) -> Result<(usize, T), T::Err> {
+        let (cur, elem) = T::next(&self.stream[self.cur..])?;
         assert!(cur >= self.cur);
-        self.cur = self.cur;
+        Ok((cur, elem))
+    }
+
+    pub fn advance(&mut self, n: usize) {
+        assert!(self.cur + n <= self.stream.len());
+        self.cur += n;
+    }
+
+    pub fn rewind(&mut self, n: usize) {
+        self.cur -= n;
+    }
+
+    pub fn next<T: FromNext>(&mut self) -> Result<T, T::Err> {
+        let (len, elem) = self.peek::<T>()?;
+        self.advance(len);
         Ok(elem)
     }
 
+    /// gets the next token and separator but does not advance the cursor
+    pub fn peek_token(&mut self, end: fn(&str) -> Option<usize>) -> Result<(usize, String, String), ()> {
+        if self.stream[self.cur..].is_empty() {return Err(())}
+        for (i, _) in (&self.stream[self.cur..]).char_indices() {
+            let token_len = end(&self.stream[self.cur+i..]);
+            if token_len.is_some() {
+                let token = &self.stream[self.cur..self.cur + i];
+                let sep = &self.stream[self.cur + i..self.cur + i + token_len.unwrap()];
+                return Ok((i+token_len.unwrap(), token.into(), sep.into()))
+            }
+        }
+        Ok((self.stream.len() - self.cur, self.stream[self.cur..].into(), "".into()))
+    }
 
-    /// scans for simple regex-like string patterns
-    /// ## Supported Syntax:
-    ///     - characters are expected to match as-is.
-    ///     - anything inside [] can be matched. Use - for range like a-zA-Z, 0-9. 
-    ///     - wild cards * (>=0), ? (0 or 1), and + (>=1) can be utilized.
-    ///     - () can be used for operation grouping
-    ///     - <> is a capture group. No nesting is allowed. wild cards applied to this grouping extend its capture like <...>*
-    ///       only outermost captures are considered. inner captures <<>> are ignored for composability: <({int})>
-    /// ## Features:
-    ///     X No back-stepping, maximum greediness matching expected. (Ex: a*a will NOT match, as a* consumes all a's)
-    pub fn scan_pat(&mut self, pat: &str) -> Result<Vec<String>, String> {
-        let mut captures: Vec<(usize, usize)> = vec![];
-        let mut capturing: bool = false;
-        let mut open_paren_stack: Vec<usize> = vec![];
+    /// Scans for the next token given a specified separator and retrieves both the token and separator
+    /// ### Examples
+    /// ```
+    /// let mut scanner = StrScanner::create("Comma, Separated, Values!, 999");
+    /// let is_sep = |s: &str| if s.starts_with(',') {Some(1)} else {None};
+    /// assert_eq!(scanner.next_token(is_sep), Ok(("Comma".into(),      ",".into())));
+    /// assert_eq!(scanner.next_token(is_sep), Ok((" Separated".into(), ",".into())));
+    /// assert_eq!(scanner.next_token(is_sep), Ok((" Values!".into(),   ",".into())));
+    /// assert_eq!(&scanner.stream[scanner.cur..], " 999");
+    /// assert_eq!(scanner.next_token(is_sep), Ok((" 999".into(),       "".into())));
+    /// assert_eq!(scanner.next_token(is_sep), Err(()));
+    /// ```
+    ///
+    /// ### Parameters
+    /// - `end`: A callback that takes the stream's current position and determines if we're at the stopping separator
+    ///          and its length
+    pub fn next_token(&mut self, end: fn(&str) -> Option<usize>) -> Result<(String, String), ()> {
+        let (len, token, sep) = self.peek_token(end)?;
+        self.advance(len);
+        Ok((token, sep))
+    }
 
-        let mut pat_cur = 0;
-        for (pat_unit, size) in Self::next_pat(&pat[pat_cur..]){
-
-            // advance to next pattern unit
-            pat_cur += size;
-            
+    pub fn peek_word(&mut self) -> Result<(usize, String), ()> {
+        if self.stream[self.cur..].trim().is_empty() {return Err(())}
+        let mut trim_state = true;
+        for (i, c) in (&self.stream[self.cur..]).char_indices() {
+            if !trim_state && c.is_whitespace() {
+                let out = self.stream[self.cur..self.cur + i].trim();
+                return Ok((i+1, out.into()))
+            }
+            if trim_state && !c.is_whitespace() {trim_state = false;}
         }
 
-        unimplemented!();
+        Ok((self.stream.len() - self.cur, self.stream[self.cur..].into()))
+    }
+
+    /// # Examples
+    /// ```
+    /// let mut scanner = StrScanner::create("I love cereal!");
+    /// assert_eq!(scanner.next_word(), Ok("I".into()));
+    /// assert_eq!(scanner.next_word(), Ok("love".into()));
+    /// assert_eq!(scanner.next_word(), Ok("cereal!".into()));
+    /// assert_eq!(scanner.next_word(), Err(()));
+
+    /// let mut scanner = StrScanner::create("   Trim   your spaces!   ");
+    /// assert_eq!(scanner.next_word(), Ok("Trim".into()));
+    /// assert_eq!(scanner.next_word(), Ok("your".into()));
+    /// assert_eq!(scanner.next_word(), Ok("spaces!".into()));
+    /// assert_eq!(scanner.next_word(), Err(()));
+    /// ```
+    pub fn next_word(&mut self) -> Result<String, ()> {
+        let (len, out) = self.peek_word()?;
+        self.advance(len);
+        Ok(out)
+    }
+
+    /// reads the next line from the stream but does not advance the cursor
+    pub fn peek_line(&mut self) -> Result<(usize, String), ()> {
+        let (cur, out, _) = self.peek_token(
+            |s| if s.starts_with("\n") {Some(1)} else {None})?;
+        Ok((cur, out.trim_end().into()))
+    }
+
+    pub fn next_line(&mut self) -> Result<String, ()> {
+        let (cur, out) = self.peek_line()?;
+        self.advance(cur);
+        Ok(out)
+    }
+
+    pub fn peek_char(&mut self) -> Result<(usize, char), ()> {
+        println!("len: {}, cur: {}", self.stream.len(), self.cur);
+        if self.cur == self.stream.len() {return Err(());}
+        let out: char = self.stream[self.cur..].chars().next().unwrap();
+        Ok((out.len_utf8(), out))
+    }
+
+    pub fn next_char(&mut self) -> Result<char, ()> {
+        let (len, out) = self.peek_char()?;
+        self.advance(len);
+        Ok(out)
+    }
+
+    /// scans the next int but does not advance the stream cursor
+    pub fn peek_int(&mut self) -> Result<(usize, i32), ()> {
+        let sign: i32 = if self.match_next("-").is_ok() {-1} else {1};
+        let mut total_step = if sign == -1 {1} else {0};
+
+        let mut num: i32 = 0;
+        let mut is_valid = false;
+        loop {
+            let tup_res = self.peek_char();
+            if tup_res.is_err() {break;}
+            let (step, c) = tup_res.unwrap();
+
+            if !CharUtils(c).is_in("0-9") {break;}
+            is_valid = true;
+            num = 10*num + c.to_digit(10).unwrap() as i32;
+            self.advance(step);
+            total_step += step;
+        }
+
+        if !is_valid {return Err(())}
+        
+        self.rewind(total_step);
+        Ok((total_step, sign * num))
     }
 
     /// an integer may only numbers 0-9, and an optional negative sign: <-?><[0-9][0-9]+>
-    pub fn scan_int(&mut self) -> Result<i32, String> {
-        unimplemented!();
+    /// this does not require that the integer is separated by white space or anything
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(StrScanner::create("10").next_int(), Ok(10));
+    /// assert_eq!(StrScanner::create("00").next_int(), Ok(0));
+    /// assert_eq!(StrScanner::create("-999").next_int(), Ok(-999));
+    /// assert_eq!(StrScanner::create("not a valid int!").next_int(), Err(()));
+    /// assert_eq!(StrScanner::create("100pancakes!").next_int(), Ok(100));
+    /// ```
+    pub fn next_int(&mut self) -> Result<i32, ()> {
+        let (step, out) = self.peek_int()?;
+        self.advance(step);
+        Ok(out)
+    }
+
+    /// matches the next characters to `exp`
+    pub fn match_next(&mut self, exp: &str) -> Result<(), ()> {
+        if (&self.stream[self.cur..]).starts_with(exp) {
+            self.cur += exp.len();
+            return Ok(())
+        }
+        Err(())
     }
 
     pub fn create(stream: &'a str) -> Self {
         Self {stream: stream, cur: 0}
     }
-
-    enum Wildcard {
-        ZeroOrOne, ZeroOrMany, OneOrMany,
-    }
-
-    impl WildCard {
-        fn from(c: char) -> Result<Self, ()> {
-            match c {
-                '?' => Ok(Self::ZeroOrOne),
-                '*' => Ok(Self::ZeroOrMany),
-                '+' => Ok(Self::OneOrMany),
-                _ => (Err(()))
-            }
-        }
-    }
-
-    enum NextPat<'a> {
-        Match(&'a str),
-        Range()
-        Group(Vec<NextPat<'a>>),
-        Wild(Wildcard),
-        Capture(bool),
-    }
-
-    fn next_pat(pat: &'a str) -> (NextPat, usize) {
-        unimplemented!();
-    }
 }
 
-trait FromNext: Sized {
+/// This trait allows for any type to be stream parsed with `StrScanner().next<T>()`
+pub trait FromNext: Sized {
     type Err;
-    fn next(s: &str) -> Result<(Self, usize), Self::Err>;
+
+    /// stream parse one token of type `Self` from `s` and specify how much it advanced the stream cursor
+    fn next(s: &str) -> Result<(usize, Self), Self::Err>;
 }
 
 
@@ -96,24 +205,68 @@ mod tests {
 
     mod str_scanner_tests {
         use super::*;
+
         #[test]
-        fn test_scan_pat() {
+        fn test_next_int() {
+            assert_eq!(StrScanner::create("10").next_int(), Ok(10));
+            assert_eq!(StrScanner::create("00").next_int(), Ok(0));
+            assert_eq!(StrScanner::create("-999").next_int(), Ok(-999));
+            assert_eq!(StrScanner::create("not a valid int!").next_int(), Err(()));
+            assert_eq!(StrScanner::create("100pancakes!").next_int(), Ok(100));
 
+            let mut scanner = StrScanner::create("192.168.1.1");
+            assert_eq!(scanner.next_int(), Ok(192));
+            assert_eq!(scanner.next_char(), Ok('.'));
+            assert_eq!(scanner.next_int(), Ok(168));
+            assert_eq!(scanner.next_char(), Ok('.'));
+            assert_eq!(scanner.next_int(), Ok(1));
+            assert_eq!(scanner.next_char(), Ok('.'));
+            assert_eq!(scanner.next_int(), Ok(1));
+            assert_eq!(scanner.next_int(), Err(()));
         }
 
-        fn assert_matches_scan_pat(s: &str, pat: &str) {
-            let mut scan = StrScanner::create(s);
-            let res = scan.scan_pat(pat);
-            assert!(res.is_ok());
+        #[test]
+        fn test_next_word() {
+            let mut scanner = StrScanner::create("I love cereal!");
+            assert_eq!(scanner.next_word(), Ok("I".into()));
+            assert_eq!(scanner.next_word(), Ok("love".into()));
+            assert_eq!(scanner.next_word(), Ok("cereal!".into()));
+            assert_eq!(scanner.next_word(), Err(()));
+
+            let mut scanner = StrScanner::create("   Trim   your spaces!   ");
+            assert_eq!(scanner.next_word(), Ok("Trim".into()));
+            assert_eq!(scanner.next_word(), Ok("your".into()));
+            assert_eq!(scanner.next_word(), Ok("spaces!".into()));
+            assert_eq!(scanner.next_word(), Err(()));
+        }
 
 
+        #[test]
+        fn test_next_token() {
+            let mut scanner = StrScanner::create("Comma, Separated, Values!, 999");
+            let is_sep = |s: &str| if s.starts_with(',') {Some(1)} else {None};
+            assert_eq!(scanner.next_token(is_sep), Ok(("Comma".into(),      ",".into())));
+            assert_eq!(scanner.next_token(is_sep), Ok((" Separated".into(), ",".into())));
+            assert_eq!(scanner.next_token(is_sep), Ok((" Values!".into(),   ",".into())));
+            assert_eq!(&scanner.stream[scanner.cur..], " 999");
+            assert_eq!(scanner.next_token(is_sep), Ok((" 999".into(),       "".into())));
+            assert_eq!(scanner.next_token(is_sep), Err(()));
+        }
+
+        #[test]
+        fn test_next_line() {
+            let mut scanner = StrScanner::create("
+            Roses are red.\r
+            Violets are blue!
+            I thought...    
+            I could be with you!");
+
+            assert_eq!(scanner.next_line(), Ok("".into()));
+            assert_eq!(scanner.next_line(), Ok("            Roses are red.".into()));
+            assert_eq!(scanner.next_line(), Ok("            Violets are blue!".into()));
+            assert_eq!(scanner.next_line(), Ok("            I thought...".into()));
+            assert_eq!(scanner.next_line(), Ok("            I could be with you!".into()));
+            assert_eq!(scanner.next_line(), Err(()));
         }
     }
-
-    #[test]
-    fn test() {
-        println!("hi!");
-        assert_eq!(1,2);
-    }
-
 }

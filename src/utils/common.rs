@@ -6,7 +6,7 @@
 /// implements search and scanning functions for &str
 pub struct StrUtils<'a>(pub &'a str);
 
-impl StrUtils<'_> {
+impl<'a> StrUtils<'a> {
     /// checks for occurrance of every character in $chars in the string
     /// 
     /// # Examples
@@ -53,13 +53,28 @@ impl StrUtils<'_> {
     }
 
     /// gets the tab characters of the string
-    pub fn tabs(&self) -> &str {
+    ///
+    /// ### Examples
+    /// ````
+    /// assert_eq!(StrUtils(" \t \tTest").tabs(), " \t \t".to_string());
+    /// ```
+    pub fn tabs(&self) -> &'a str {
         let mut idx = 0;
         for c in self.0.chars() {
-            if !CharUtils(c).is_in(&vec![' ', '\t']) {break;}
+            if !CharUtils(c).is_in(" \t") {break;}
             idx += 1;
         }
         &self.0[..idx]
+    }
+
+    // untabs every line `n` tabs
+    pub fn untab(&self, n: usize) -> String {
+        let mut out = String::new();
+        for line in self.0.lines() {
+
+        }
+        
+        todo!();
     }
 
 }
@@ -70,47 +85,88 @@ impl<'a> From<&'a str> for StrUtils<'a> {
     }
 }
 
-
-#[cfg(test)]
-mod string_utils_tests {
-    use super::*;
-    #[test]
-    fn test_contains_any() {
-        assert_eq!(StrUtils("0xDeadFeed").contains_any("ABCDEFabcdef"), true);
-        assert_eq!(StrUtils("456").contains_any("123"), false);
-    }
-
-    #[test]
-    fn test_contains_all() {
-        assert_eq!(StrUtils("[ContainsBrackets]").contains_all("[]"), true);
-        assert_eq!(StrUtils("[01]").contains_all("01"), true);
-        assert_eq!(StrUtils("[1]").contains_all("01"), false);
-    }
-
-    fn test_in_any() {
-        assert_eq!(StrUtils("OK").in_any(&vec!["OK", "PASS"]), true);
-        assert_eq!(StrUtils("NO").in_any(&vec!["OK", "PASS"]), false);
-    }
-
-
-}
-
-
-/// -----------------------------------------------------------------
-/// -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// -----------------------------------------------------------------
 
 /// utils for the char type
-pub struct CharUtils(char);
+pub struct CharUtils(pub char);
 
 impl CharUtils {
-    /// checks if the character matches any characters in $v
-    pub fn is_in(&self, v: &[char]) -> bool {
-        v.iter().any(|&el| self.0 == el)
+    /// checks if the character matches any characters specified in `pat`.
+    ///
+    /// ### Parameters
+    /// - `pat` - a pattern of characters to match. It can be a range or a single match or a mixture of both. "0-9", "a-zA-Z", "01-9". valid pattern is asserted.
+    ///
+    /// ### Preconditions (Asserted)
+    /// - `pat` must be a valid pattern: It must be ASCII, only contains characters and character ranges.
+    ///
+    /// ### Examples 
+    /// ```
+    /// assert_eq!(CharUtils('1').is_in("0-9"), true);
+    /// assert_eq!(CharUtils('a').is_in("0-9"), false);
+    /// assert_eq!(CharUtils('a').is_in("0-9a"), true);
+    /// assert_eq!(CharUtils('c').is_in("abd-z"), false);
+    /// ```
+    pub fn is_in(&self, pat: &str) -> bool {
+        let mut chars: Vec<char> = vec![];
+        println!("\n{}, {}", self.0, pat);
+
+        // tokenize pattern input into matchers and ranges
+        for token in TokenIter(pat.chars(), None) {
+            match token {
+            Token::Match(c) => {
+                // println!("Match {}", c);
+                chars.push(c);
+            },
+            Token::Range(c1, c2) => {
+                // generate characters between the range (c1,c2)
+                // println!("Range ({}, {})", c1, c2);
+                assert!(c1 < c2);
+                for val in c1 as u8..=c2 as u8 {
+                    chars.push(val as char);
+                }
+            }
+            }
+        }
+        return chars.iter().any(|&el| self.0 == el);
+        
+
+        enum Token {
+            Match(char), 
+            Range(char, char),
+        }
+
+        struct TokenIter<I: Iterator<Item = char>>(I, Option<I::Item>);
+        impl<I: Iterator<Item = char>> Iterator for TokenIter<I> {
+            type Item = Token;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                // retrieve first character from history or iterator
+                let c1 = if self.1.is_some() {self.1.unwrap()} else {self.0.next()?};
+                if self.1.is_some() {self.1 = None;}
+
+                // retrieve potential range operator, or just next character to put in history
+                let c2_res = self.0.next();
+                if c2_res.is_some() {
+                    if c2_res.unwrap() == '-' {
+                        let c3 = self.0.next().unwrap();
+                        return Some(Token::Range(c1, c3));
+                    } else {
+                        // store this in history for next call, as it's not our range token
+                        self.1 = Some(c2_res.unwrap());
+                        return Some(Token::Match(c1));
+                    }
+                }
+
+                // only one character remained at the end, so it couldn't be a range
+                return Some(Token::Match(c1));
+            }
+        }
     }
 }
 
-/// -----------------------------------------------------------------
-/// -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// -----------------------------------------------------------------
 
 /// this can be used to handle multiple result sources without subtyping them together
 pub fn result_err_to_unit<T, E>(res: Result<T, E>) -> Result<T, ()> {
@@ -260,6 +316,54 @@ fn bad_warning_macros() {
     repeat_varargs_macro32!(2, println, "Wowies!");
 }
 
+
+#[cfg(test)]
+mod string_utils_tests {
+    use super::*;
+    #[test]
+    fn test_contains_any() {
+        assert_eq!(StrUtils("0xDeadFeed").contains_any("ABCDEFabcdef"), true);
+        assert_eq!(StrUtils("456").contains_any("123"), false);
+    }
+
+    #[test]
+    fn test_contains_all() {
+        assert_eq!(StrUtils("[ContainsBrackets]").contains_all("[]"), true);
+        assert_eq!(StrUtils("[01]").contains_all("01"), true);
+        assert_eq!(StrUtils("[1]").contains_all("01"), false);
+    }
+
+    fn test_in_any() {
+        assert_eq!(StrUtils("OK").in_any(&vec!["OK", "PASS"]), true);
+        assert_eq!(StrUtils("NO").in_any(&vec!["OK", "PASS"]), false);
+    }
+
+    #[test]
+    fn test_tabs() {
+        assert_eq!(StrUtils(" \t \tTest").tabs(), " \t \t".to_string());
+    }
+}
+
+#[cfg(test)]
+mod char_utils_tests {
+    use super::*;
+    #[test]
+    fn test_is_in() {
+        assert_eq!(CharUtils('1').is_in("0-9"), true);
+        assert_eq!(CharUtils('a').is_in("0-9"), false);
+        assert_eq!(CharUtils('a').is_in("0-9a"), true);
+        assert_eq!(CharUtils('c').is_in("abd-z"), false);
+        assert_eq!(CharUtils('e').is_in("01-9abd-z"), true);
+        // assert_is_in_panics('c', "a---c")
+    }
+
+    fn assert_is_in_panics(c: char, s: &str) {
+        // you can just not unwrap or use unwrap_err, but showcasing this is cool!
+        let res = std::panic::catch_unwind(|| CharUtils(c).is_in(s));
+        assert!(res.is_err());
+    }
+
+}
 
 #[cfg(test)]
 mod tests {

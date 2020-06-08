@@ -10,6 +10,8 @@
 
 use std::borrow::Cow;
 use crate::utils::common::StrUtils;
+use crate::utils::scanner;
+use scanner::{FromNext, StrScanner};
 
 #[derive(Debug, PartialEq)]
 struct Section {
@@ -27,45 +29,64 @@ enum SectionParseError {
     Next(Section, String),
 }
 
-impl std::str::FromStr for Section {
+impl scanner::FromNext for Section {
     type Err = SectionParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn next(s: &str) -> Result<(usize, Self), Self::Err> {
         let line_idx = s.find("\n").or_else(|| Some(s.len())).unwrap();
-        let specifier_line = &s[..line_idx];
-        let s = &s[line_idx..];
 
-        if !StrUtils(&specifier_line).contains_all("[]")
-            {return Err(SectionParseError::Message(
-                format!("input str does not start with a section specifier: {}", specifier_line).into()))}
-        
-        // determine tab level
-        // TODO break if tab level is ever broken too
-        let specifier_tab = StrUtils(specifier_line).tabs().to_string();
+        let specifier_line_error_msg = "Could not parse specifier line";
+
+        let mut scan = StrScanner::create(s);
+        let specifier_line = scan.next_line()
+            .or_else(|e| Err(SectionParseError::Message(specifier_line_error_msg.into())))?;
+        let trimmed_specifier_line = specifier_line.trim();
+
+        // match "\[.*\]" and extract specifier
+        if !trimmed_specifier_line.starts_with("[") || !trimmed_specifier_line.ends_with("]") {
+            return Err(SectionParseError::Message(specifier_line_error_msg.into()));
+        }
+        let specifier = &specifier_line[1..specifier_line.len()-1];
+        let specifier_tab = StrUtils(&specifier_line).tabs();
 
         // parse section specifier pattern
         let open_bracket_idx = specifier_line.find("[").unwrap();
         let closed_bracket_idx = specifier_line.find("]").unwrap();
         let specifier = specifier_line[open_bracket_idx+1..closed_bracket_idx].trim();
 
-        // make sure not to enconter another section, or just parse partially
-        let section_start_idx = s.find(&(format!("\n{}[", specifier_tab)));
-        if section_start_idx.is_some() {
-            let i = section_start_idx.unwrap();
-            return Err(SectionParseError::Next (
-                Section {
-                    tab: specifier_tab, 
-                    pattern: specifier.into(), 
-                    body: (&s[..i]).trim().into()
-                },
-                (&s[i..]).into(),))
-        }
+        // make sure not to encounter another section, or just parse partially
+        // Consume until beginning of new section, end of stream, or end of tab level
+        let body_start_cur = scan.cur;
+        while let Ok((len, line)) = scan.peek_line() {
+            let trimmed_line = line.trim();
+            let line_tab = StrUtils(&line).tabs();
 
-        Ok(Section {
-            tab: specifier_tab,
+            // reached end of tab body
+            if !line_tab.is_empty() && line_tab.len() < specifier_tab.len() {break;}
+
+            // start of new section detected
+            if line_tab.len() == specifier_tab.len() && trimmed_line.starts_with("[") && trimmed_line.ends_with("]") {
+                break;
+            }
+            
+            // consume all other lines
+            scan.advance(len);
+        }
+        let section_body = &scan.stream[body_start_cur..scan.cur];
+
+        Ok((scan.cur, Section {
+            tab: specifier_tab.into(),
             pattern: specifier.into(),
-            body: s.trim().into()
-        })
+            // body: StrUtils(section_body).untab(specifier_tab)
+            body: section_body.into(),
+        }))
+    }
+}
+
+impl std::str::FromStr for Section {
+    type Err = SectionParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (cur, out) = (Self as FromNext).next(s);
     }
 }
 
