@@ -11,4 +11,5 @@ lazy_static = "1"
 regex = "1"
 bitflags = "1"
 itertools = "0"
+indoc = "1.0"
 

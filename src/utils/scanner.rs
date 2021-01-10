@@ -1,4 +1,4 @@
-//! @author LanHikari22 <lanhikarixx@gmail.com>
+//! @author Mohammed Alzakariya <lanhikarixx@gmail.com>
 //! 
 //! This defines the FromNext trait and StrScanner type which can be used to parse elements off of a
 //! string stream and maintain a running substr window such that each element can be consumed consecutively
@@ -9,9 +9,9 @@ use super::common::CharUtils;
 
 
 pub struct StrScanner<'a> {
-    // defines the string stream to consume from 
+    /// defines the string stream to consume from 
     pub stream: &'a str,
-    // cursor into the stream used to obtain the current unconsumed slice
+    /// cursor into the stream used to obtain the current unconsumed slice
     pub cur: usize,
 }
 

@@ -1,0 +1,12 @@
+A useful dipiction of the main modules to use and their relations to other modules
+
+ttm_io
+  /includes/ block_tracker
+  /includes/ task_tree
+    /container of/ task
+      /uses/ date
+      /uses/ stat
+  /includes/ section
+    /uses/ block_tracker
+    /uses/ task_tree
+    

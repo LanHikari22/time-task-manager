@@ -1,6 +1,10 @@
 // TODO: remove when this is stable
 #![allow(dead_code)]
 
+//! Implementation of the Date syntax.
+//! Represents Date as a Year, Season, Week number, and Day
+//! Example: Y21W-W3R is Year 2021 (W)inter, Week 3 Thursday.
+
 use std::borrow::Cow;
 use regex::Regex;
 use super::common_regex;

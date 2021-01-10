@@ -5,3 +5,6 @@ rusty-tags.vi
 # vim
 *.swp
 *.swo
+
+# diff files for comparison
+*.diff

@@ -68,9 +68,9 @@ impl<'a> StrUtils<'a> {
     }
 
     // untabs every line `n` tabs
-    pub fn untab(&self, n: usize) -> String {
-        let mut out = String::new();
-        for line in self.0.lines() {
+    pub fn untab(&self, _n: usize) -> String {
+        let mut _out = String::new();
+        for _line in self.0.lines() {
 
         }
         

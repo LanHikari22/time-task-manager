@@ -1,21 +1,30 @@
-use std::borrow::Cow;
-use regex::Regex;
-use crate::utils::common;
+#![allow(dead_code)]
+
 use super::common_regex;
 use super::regex_utils;
-
+use crate::utils::common;
+use regex::Regex;
+use std::borrow::Cow;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Stat {
-    Count {act: Option<i32>, exp: Option<i32>}, // actual count out of expected count or objective. ex. 2/5 reads "Done 2 out of 5."
-    Bool {act: bool, exp:  bool}, // -: not done (but implicitly required!), !: done, -/!: explicit default of "-", !/-: done, wasn't required, /-: not required.
-                                                 // act is set to false (-) or not done by default if absent. exp is set to true (!) or required if absent.
-    RequiredCount {act: i32, exp: bool}, // Like count, except there is no objective count. Only whether it is required or not. 
-                                         // 5/- Did five, not required. 0/! Did 0, required! 
-                                         // Counts Without an objective have undefined requirement status. That is determined through other elements. This explicitly defines it.
-    Unknown, // ? signifies unknown status. 
+    Count { act: Option<i32>, exp: Option<i32> }, // actual count out of expected count or objective. ex. 2/5 reads "Done 2 out of 5."
+    Bool { act: bool, exp: bool }, // -: not done (but implicitly required!), !: done, -/!: explicit default of "-", !/-: done, wasn't required, /-: not required.
+    // act is set to false (-) or not done by default if absent. exp is set to true (!) or required if absent.
+    RequiredCount { act: i32, exp: bool }, // Like count, except there is no objective count. Only whether it is required or not.
+    // 5/- Did five, not required. 0/! Did 0, required!
+    // Counts Without an objective have undefined requirement status. That is determined through other elements. This explicitly defines it.
+    Unknown, // ? signifies unknown status.
 }
 
+impl Stat {
+    pub fn from_count(act: Option<i32>, exp: Option<i32>) -> Self {
+        Self::Count { act, exp }
+    }
+    pub fn from_bool(act: bool, exp: bool) -> Self {
+        Self::Bool { act, exp }
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -45,7 +54,6 @@ pub mod stat_parser_regex {
             )$)", COUNT=COUNT.as_str(), BOOL=BOOL.as_str(), REQUIRED_COUNT=REQUIRED_COUNT.as_str(),
             UNKNOWN=UNKNOWN.as_str()));
 
-
         // compiled regex
         pub static ref COUNT_RE: Regex = Regex::new(&COUNT).unwrap();
         pub static ref BOOL_RE: Regex = Regex::new(&BOOL).unwrap();
@@ -57,6 +65,7 @@ pub mod stat_parser_regex {
 
 impl std::str::FromStr for Stat {
     type Err = Cow<'static, str>;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         fn parse_custom_bool(s: &str) -> Result<bool, ()> {
             match s {
@@ -68,49 +77,71 @@ impl std::str::FromStr for Stat {
 
         if let Some(cap) = stat_parser_regex::COUNT_RE.captures(s) {
             // captures the tokens from the regex depending on which variant they end up on
-            let act_cap = cap.name("ACT0").or_else(|| cap.name("ACT1")).map(|m| m.as_str());
-            let exp_cap = cap.name("EXP0").or_else(|| cap.name("EXP2")).map(|m| m.as_str());
+            let act_cap = cap
+                .name("ACT0")
+                .or_else(|| cap.name("ACT1"))
+                .map(|m| m.as_str());
+            let exp_cap = cap
+                .name("EXP0")
+                .or_else(|| cap.name("EXP2"))
+                .map(|m| m.as_str());
 
-            let act = if act_cap.is_some() {Some(common::parse_integer_auto(act_cap.unwrap()).unwrap())} else {None};
-            let exp = if exp_cap.is_some() {Some(common::parse_integer_auto(exp_cap.unwrap()).unwrap())} else {None};
-            Ok(Stat::Count {act, exp})
-        }
-        else if let Some(cap) = stat_parser_regex::BOOL_RE.captures(s) {
+            let act = if act_cap.is_some() {
+                Some(common::parse_integer_auto(act_cap.unwrap()).unwrap())
+            } else {
+                None
+            };
+            let exp = if exp_cap.is_some() {
+                Some(common::parse_integer_auto(exp_cap.unwrap()).unwrap())
+            } else {
+                None
+            };
+            Ok(Stat::Count { act, exp })
+        } else if let Some(cap) = stat_parser_regex::BOOL_RE.captures(s) {
             // captures the tokens from the regex depending on which variant they end up on
-            let act_cap = cap.name("ACT0").or_else(|| cap.name("ACT1")).map(|m| m.as_str());
-            let exp_cap = cap.name("EXP0").or_else(|| cap.name("EXP2")).map(|m| m.as_str());
-            
+            let act_cap = cap
+                .name("ACT0")
+                .or_else(|| cap.name("ACT1"))
+                .map(|m| m.as_str());
+            let exp_cap = cap
+                .name("EXP0")
+                .or_else(|| cap.name("EXP2"))
+                .map(|m| m.as_str());
             // actual defaults to false (not done) and expected defaults to true (required to bedone)
-            let act = if act_cap.is_some() {parse_custom_bool(act_cap.unwrap()).unwrap()} else {false};
-            let exp = if exp_cap.is_some() {parse_custom_bool(exp_cap.unwrap()).unwrap()} else {true};
-            Ok(Stat::Bool {act, exp})
-        }
-        else if let Some(cap) = stat_parser_regex::REQUIRED_COUNT_RE.captures(s) {
+            let act = if act_cap.is_some() {
+                parse_custom_bool(act_cap.unwrap()).unwrap()
+            } else {
+                false
+            };
+            let exp = if exp_cap.is_some() {
+                parse_custom_bool(exp_cap.unwrap()).unwrap()
+            } else {
+                true
+            };
+            Ok(Stat::Bool { act, exp })
+        } else if let Some(cap) = stat_parser_regex::REQUIRED_COUNT_RE.captures(s) {
             // captures the tokens from the regex depending on which variant they end up on
             let act_cap = cap.name("ACT").map(|m| m.as_str());
             let exp_cap = cap.name("EXP").map(|m| m.as_str());
 
             let act = common::parse_integer_auto(act_cap.unwrap()).unwrap();
             let exp = parse_custom_bool(exp_cap.unwrap()).unwrap();
-            Ok(Stat::RequiredCount {act, exp})
-        }
-        else if let Some(_cap) = stat_parser_regex::UNKNOWN_RE.captures(s) {
+            Ok(Stat::RequiredCount { act, exp })
+        } else if let Some(_cap) = stat_parser_regex::UNKNOWN_RE.captures(s) {
             Ok(Stat::Unknown)
-        }
-        else {
+        } else {
             Err(format!("No variant of Stat is satisfied by '{}'", s).into())
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ------------------------------------------------------------------------------------------------------------------
-    // Stat Tests -------------------------------------------------------------------------------------------------------
-    // ------------------------------------------------------------------------------------------------------------------
+    // ----------------------------
+    // Stat Tests -----------------
+    // ----------------------------
     
     #[test]
     fn test_stat_parse() {
@@ -134,6 +165,7 @@ mod tests {
         assert_parses("/0xFF", &Stat::Count {act: None, exp: Some(0xFF)});
         assert_parses("0x0/0b0", &Stat::Count {act: Some(0), exp: Some(0)});
         assert_parses("5 /  5", &Stat::Count {act: Some(5), exp: Some(5)});
+        assert_parses("5 /5", &Stat::Count {act: Some(5), exp: Some(5)});
         assert_parses("3", &Stat::Count {act: Some(3), exp: None});
         assert_parses("999", &Stat::Count {act: Some(999), exp: None});
 
@@ -158,9 +190,5 @@ mod tests {
         assert_fails(",999");
         assert_fails("(999)");
         assert_fails("999 // beep boop");
-        
     }
-
-    
-    
 }
