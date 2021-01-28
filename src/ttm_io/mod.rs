@@ -5,6 +5,7 @@ pub mod regex_utils;
 mod block_tracker; 
 mod stat; 
 mod task; 
+mod task_tree;
 mod date;
 mod section;
 
